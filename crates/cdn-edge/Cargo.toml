@@ -1,17 +1,19 @@
 [package]
-name = "cdn-edge"
+name    = "cdn-edge"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow = "1"
-axum = { version = "0.7", features = ["macros"] }
-clap = { version = "4", features = ["derive", "env"] }
-futures-util = "0.3"
-http-body-util = "0.1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
-tower = "0.5"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow             = { workspace = true }
+axum               = { workspace = true }
+clap               = { workspace = true }
+tokio              = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest     = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+dashmap     = "6"
+bytes       = "1"
+futures-util      = "0.3"
+http-body-util    = "0.1"
+tower             = "0.5"

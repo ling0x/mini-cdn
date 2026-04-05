@@ -5,3 +5,11 @@ members = ["crates/cdn-origin", "crates/cdn-edge"]
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+anyhow      = "1"
+axum        = { version = "0.7", features = ["macros"] }
+clap        = { version = "4",   features = ["derive", "env"] }
+tokio       = { version = "1",   features = ["macros", "rt-multi-thread", "signal"] }
+tracing     = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

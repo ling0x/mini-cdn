@@ -1,64 +1,74 @@
-# cdn
+# mini-cdn
 
-Minimal Rust workspace that models a tiny CDN split into an **origin** (static files + cache headers) and an **edge** (HTTP reverse proxy to that origin). Both binaries are small Axum servers intended as a starting point, not a production CDN.
+A minimal CDN written in Rust — two binaries, one workspace.
 
-## Layout
-
-| Crate | Role |
-|-------|------|
-| [`crates/cdn-origin`](crates/cdn-origin) | Serves a directory with `tower-http`’s `ServeDir` and adds `Cache-Control: public, max-age=3600` when the response does not already set `Cache-Control`. |
-| [`crates/cdn-edge`](crates/cdn-edge) | Forwards any request to the configured origin URL, preserving path and query. Response bodies are streamed from the upstream. |
-
-Default static content lives in [`crates/cdn-origin/static`](crates/cdn-origin/static).
-
-## Requirements
-
-- A recent stable Rust toolchain (2021 edition).
-
-## Build
-
-```bash
-cargo build --workspace
+```
+crates/
+├── cdn-origin/   # Static-asset origin server (source of truth)
+│   ├── src/
+│   │   ├── main.rs       # Entry point — wires config, router, shutdown
+│   │   ├── config.rs     # Clap config (bind, root, max_age)
+│   │   ├── router.rs     # Axum router — ServeDir, compression, /health
+│   │   └── shutdown.rs   # Graceful SIGINT / SIGTERM handler
+│   └── static/           # Default asset root
+│
+└── cdn-edge/     # Pull-through caching edge node
+    └── src/
+        ├── main.rs       # Entry point — wires config, cache, reqwest client
+        ├── config.rs     # Clap config (bind, origin, cache TTL, pool, region)
+        ├── cache.rs      # TTL-based DashMap cache with stale-eviction
+        ├── proxy.rs      # Proxy logic — HIT/MISS, ETag/304, should_cache
+        ├── router.rs     # Axum router — /health, DELETE /cache/:key, fallback
+        └── shutdown.rs   # Graceful SIGINT / SIGTERM handler
 ```
 
-## Run locally
-
-Start the origin first, then the edge.
+## Quick start
 
 ```bash
-# Terminal 1 — listens on 127.0.0.1:4000 by default
+# Terminal 1 — origin
 cargo run -p cdn-origin
 
-# Terminal 2 — listens on 127.0.0.1:5000, proxies to http://127.0.0.1:4000
+# Terminal 2 — edge
 cargo run -p cdn-edge
+
+# Fetch via edge (cache MISS on first hit, HIT on second)
+curl -i http://127.0.0.1:5000/
 ```
 
-Then open `http://127.0.0.1:5000/` in a browser or use `curl`. The edge relays to the origin; you should see `Cache-Control` on successful static responses.
+## Response headers
+
+| Header | Value |
+|---|---|
+| `x-cdn-cache` | `HIT` or `MISS` |
+| `x-cdn-region` | e.g. `eu-west` (set via `CDN_REGION`) |
+| `etag` | SHA256-derived or origin-provided |
+| `cache-control` | `public, max-age=31536000, immutable` on cached hits |
 
 ## Configuration
 
-### `cdn-origin`
+### cdn-origin
 
-| Flag | Environment variable | Default |
-|------|----------------------|---------|
-| `--bind` | `CDN_ORIGIN_BIND` | `127.0.0.1:4000` |
-| `--root` | `CDN_ORIGIN_ROOT` | `crates/cdn-origin/static` (resolved at compile time via `CARGO_MANIFEST_DIR`) |
+| Env var | Default | Description |
+|---|---|---|
+| `CDN_ORIGIN_BIND` | `127.0.0.1:4000` | Listen address |
+| `CDN_ORIGIN_ROOT` | `crates/cdn-origin/static` | Asset directory |
+| `CDN_ORIGIN_MAX_AGE` | `3600` | Cache-Control max-age (seconds) |
 
-The static root must exist; the path is canonicalized on startup.
+### cdn-edge
 
-Logging respects `RUST_LOG` (default filter: `cdn_origin=info,tower_http=info`).
+| Env var | Default | Description |
+|---|---|---|
+| `CDN_EDGE_BIND` | `127.0.0.1:5000` | Listen address |
+| `CDN_ORIGIN_URL` | `http://127.0.0.1:4000` | Origin base URL |
+| `CDN_CACHE_MAX_ITEMS` | `2048` | Max cache entries |
+| `CDN_CACHE_TTL_SECS` | `3600` | Cache TTL (seconds) |
+| `CDN_UPSTREAM_TIMEOUT_SECS` | `30` | Upstream request timeout |
+| `CDN_POOL_MAX_IDLE` | `64` | Idle connections per host |
+| `CDN_REGION` | `local` | Region label for `x-cdn-region` |
 
-### `cdn-edge`
+## Cache invalidation
 
-| Flag | Environment variable | Default |
-|------|----------------------|---------|
-| `--bind` | `CDN_EDGE_BIND` | `127.0.0.1:5000` |
-| `--origin` | `CDN_ORIGIN_URL` | `http://127.0.0.1:4000` |
-
-The origin value is a base URL. The client’s path and query string are appended to it (for example, a request to `/foo?bar=1` is forwarded to `{origin}/foo?bar=1`). Hop-by-hop headers and `Host` are not copied verbatim to the upstream request.
-
-Logging respects `RUST_LOG` (default: `info`).
-
-## License
-
-Workspace metadata declares `MIT OR Apache-2.0`; see each crate’s `Cargo.toml` for `license.workspace = true`.
+```bash
+# Evict a key from a specific edge node
+curl -X DELETE http://127.0.0.1:5000/cache/index.html
+```
